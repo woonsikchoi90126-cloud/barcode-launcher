@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>바코드 0.5초 런처</title>
+    <!-- Google AdSense 자동 광고 스크립트 슬롯: 실제 게시자 ID(ca-pub-XXXXXXXXXXXXXXXX)로 교체하여 사용하세요. -->
+    <!--
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX"
+         crossorigin="anonymous"></script>
+    -->
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Pretendard / Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body {
+            font-family: 'Noto Sans KR', 'Inter', sans-serif;
+            background-color: #F3F4F6;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+        /* 모바일 앱 컨테이너 중앙 정렬 및 최대 폭 제한 */
+        .app-shell {
+            max-width: 480px;
+            margin: 0 auto;
+            min-height: 100vh;
+            background-color: #F9FAFB;
+            box-shadow: 0 0 25px rgba(0, 0, 0, 0.06);
+            position: relative;
+            padding-bottom: 112px; /* 하단 고정 광고 슬롯과의 충분한 여백 확보 */
+        }
+        /* 커스텀 스크롤바 숨김 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        /* 슬라이더 커스텀 스타일 */
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: #2563EB;
+            cursor: pointer;
+            margin-top: -7px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #D1D5DB;
+            border-radius: 2px;
+        }
+        /* 스캔 모드 진입 애니메이션 */
+        @keyframes scanPop {
+            0% { transform: scale(0.95); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-scan {
+            animation: scanPop 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+    </style>
+</head>
+<body class="text-gray-900 antialiased">
+
+    <div class="app-shell flex flex-col">
+        <!-- 1. 상단 고정 헤더 -->
+        <header class="sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-gray-100 px-4 pt-4 pb-3">
+            <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-sm shadow-blue-200">
+                        <i data-lucide="scan-barcode" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-lg font-extrabold tracking-tight text-gray-900 leading-none">바코드 0.5초 런처</h1>
+                        <p class="text-[11px] text-gray-400 font-medium mt-0.5">터치 즉시 스캔 · 로컬 자동저장</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <button onclick="openResetConfirm()" title="샘플 데이터 초기화" class="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition">
+                        <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="openAddModal()" class="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl shadow-sm shadow-blue-200 transition">
+                        <i data-lucide="plus" class="w-4 h-4"></i>
+                        <span>카드/쿠폰 추가</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 탭 전환 (사용 가능 / 사용 완료) & 카테고리 필터 -->
+            <div class="flex items-center justify-between gap-2">
+                <div class="flex bg-gray-100 p-1 rounded-xl w-full">
+                    <button id="tab-active" onclick="switchTab('active')" class="flex-1 py-1.5 text-xs font-bold rounded-lg bg-white text-gray-900 shadow-sm transition">
+                        사용 가능 <span id="count-active" class="ml-1 text-blue-600">0</span>
+                    </button>
+                    <button id="tab-used" onclick="switchTab('used')" class="flex-1 py-1.5 text-xs font-bold rounded-lg text-gray-500 hover:text-gray-700 transition">
+                        사용 완료 <span id="count-used" class="ml-1 text-gray-400">0</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 서브 필터 (전체 / 멤버십 / 기프티콘) -->
+            <div id="category-filter-bar" class="flex items-center gap-1.5 mt-2.5 overflow-x-auto no-scrollbar">
+                <button onclick="setFilter('all')" data-filter="all" class="filter-chip px-3 py-1 rounded-full text-xs font-semibold bg-gray-900 text-white transition">전체</button>
+                <button onclick="setFilter('membership')" data-filter="membership" class="filter-chip px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200 transition">💳 멤버십</button>
+                <button onclick="setFilter('gifticon')" data-filter="gifticon" class="filter-chip px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200 transition">🎁 기프티콘</button>
+            </div>
+        </header>
+
+        <!-- 2. 메인 카드 그리드 영역 -->
+        <main class="flex-1 px-4 pt-4">
+            <!-- 안내 팁 배너 -->
+            <div id="quick-tip" class="mb-3 bg-blue-50/80 border border-blue-100 rounded-2xl px-3.5 py-2.5 flex items-center justify-between">
+                <div class="flex items-center gap-2 text-xs text-blue-800">
+                    <i data-lucide="zap" class="w-4 h-4 text-blue-600 shrink-0"></i>
+                    <span>카드를 누르면 <strong>최대 밝기 전체화면 바코드</strong>가 열립니다.</span>
+                </div>
+                <button onclick="document.getElementById('quick-tip').style.display='none'" class="text-blue-400 hover:text-blue-600 p-1">
+                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
+
+            <!-- 2열 그리드 컨테이너 -->
+            <div id="card-grid" class="grid grid-cols-2 gap-3">
+                <!-- JS로 동적 렌더링 -->
+            </div>
+
+            <!-- 빈 상태 화면 -->
+            <div id="empty-state" class="hidden flex-col items-center justify-center py-16 text-center">
+                <div class="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-400 mb-3">
+                    <i data-lucide="ticket" class="w-8 h-8"></i>
+                </div>
+                <p id="empty-title" class="text-sm font-bold text-gray-700">등록된 바코드가 없습니다</p>
+                <p id="empty-desc" class="text-xs text-gray-400 mt-1 mb-4">자주 쓰는 멤버십이나 기프티콘을 추가해 보세요.</p>
+                <button onclick="openAddModal()" class="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-xl shadow-sm hover:bg-blue-700 transition">
+                    + 첫 바코드 등록하기
+                </button>
+            </div>
+
+            <!-- 6. 수익화 영역 1: 제휴 특가 배너 영역 -->
+            <section id="affiliate-section" class="mt-6 mb-4">
+                <div class="bg-gradient-to-r from-amber-500 to-orange-500 rounded-2xl p-4 text-white shadow-sm relative overflow-hidden">
+                    <div class="relative z-10 flex items-center justify-between">
+                        <div>
+                            <span class="inline-block bg-white/20 backdrop-blur-sm text-[10px] font-bold px-2 py-0.5 rounded-full mb-1">제휴 안내 · 오늘의 혜택</span>
+                            <h3 class="text-sm font-extrabold leading-snug">오늘의 편의점·카페 특가 쿠폰 보기</h3>
+                            <p class="text-[11px] text-amber-100 mt-0.5">스타벅스·GS25·CU 제휴 혜택 안내</p>
+                        </div>
+                        <button onclick="showToast('제휴 쿠폰 안내 페이지로 이동합니다 (MVP 시뮬레이션)')" class="shrink-0 bg-white text-orange-600 font-extrabold text-xs px-3 py-2 rounded-xl shadow-sm active:scale-95 transition">
+                            혜택 보기
+                        </button>
+                    </div>
+                    <!-- 배경 장식 원 -->
+                    <div class="absolute -right-4 -bottom-6 w-24 h-24 rounded-full bg-white/10"></div>
+                </div>
+            </section>
+
+            <!-- 7. 애드센스 정책 보완: 사용법 가이드, 로컬 저장 안내, 정책/약관/문의 섹션 -->
+            <section id="info-guide-section" class="mt-5 mb-6 space-y-3">
+                <!-- 사용법 & 빠른 결제 가이드 -->
+                <div class="bg-white rounded-2xl border border-gray-100 p-4 shadow-2xs">
+                    <div class="flex items-center gap-2 mb-2">
+                        <i data-lucide="book-open" class="w-4 h-4 text-blue-600"></i>
+                        <h2 class="text-xs font-extrabold text-gray-900">사용법 &amp; 0.5초 결제 가이드</h2>
+                    </div>
+                    <ol class="text-[11px] text-gray-600 space-y-1.5 leading-relaxed list-decimal list-inside">
+                        <li><strong class="text-gray-800">바코드 등록:</strong> 기프티콘 캡처 이미지를 불러와 바코드 영역을 자르거나, 바코드 번호를 입력해 1D 바코드를 생성합니다.</li>
+                        <li><strong class="text-gray-800">즐겨찾기 고정:</strong> 자주 쓰는 멤버십 포인트 카드는 상단 고정으로 두면 목록 맨 위에서 빠르게 찾을 수 있습니다.</li>
+                        <li><strong class="text-gray-800">즉시 스캔 &amp; 정리:</strong> 카드를 누르면 순백색 전체화면 스캔 모드가 열리며, 사용 후에는 한 번의 탭으로 '사용 완료'로 전환됩니다.</li>
+                    </ol>
+                </div>
+
+                <!-- 로컬 저장 방식 안내 (서버 미전송) -->
+                <div class="bg-emerald-50/70 rounded-2xl border border-emerald-100 p-4">
+                    <div class="flex items-center gap-2 mb-1.5">
+                        <i data-lucide="shield-check" class="w-4 h-4 text-emerald-700"></i>
+                        <h2 class="text-xs font-extrabold text-emerald-950">로컬 저장 방식 안내 (서버 미전송)</h2>
+                    </div>
+                    <p class="text-[11px] text-emerald-900/80 leading-relaxed">
+                        등록하신 카드명, 유효기간, 바코드 번호 및 크롭된 이미지는 외부 서버로 전송되지 않고 <strong>현재 사용 중인 브라우저의 localStorage에만 저장</strong>됩니다. 브라우저 캐시나 저장소 데이터를 삭제하면 함께 지워질 수 있으므로 중요한 쿠폰은 원본 보관도 함께 권장합니다.
+                    </p>
+                </div>
+
+                <!-- 정책 / 약관 / 문의 안내 링크 -->
+                <div class="bg-white rounded-2xl border border-gray-100 px-4 py-3 flex items-center justify-around text-[11px] font-bold text-gray-600">
+                    <button type="button" onclick="openPolicyModal('privacy')" class="hover:text-blue-600 py-1 transition">개인정보처리방침</button>
+                    <span class="text-gray-300">|</span>
+                    <button type="button" onclick="openPolicyModal('terms')" class="hover:text-blue-600 py-1 transition">이용약관</button>
+                    <span class="text-gray-300">|</span>
+                    <button type="button" onclick="openPolicyModal('contact')" class="hover:text-blue-600 py-1 transition">문의 안내</button>
+                </div>
+            </section>
+        </main>
+
+        <!-- 6. 수익화 영역 2: 모바일 하단 고정 광고 슬롯 (스캔 모드에서는 자동 숨김 처리) -->
+        <footer id="ad-footer-slot" class="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] z-20 bg-white/95 backdrop-blur-md border-t border-gray-200 pt-2.5 pb-2.5 px-3 flex flex-col items-center justify-center">
+            <!-- Google AdSense 디스플레이/앵커 연동용 컨테이너 (실제 운영 시 ins 태그 또는 자동 광고 활용) -->
+            <div class="w-full max-w-[336px] min-h-[54px] bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-between px-3 py-1.5">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="shrink-0 bg-gray-200 text-gray-700 text-[9px] font-extrabold px-1.5 py-0.5 rounded">AD</span>
+                    <div class="text-left truncate">
+                        <p class="text-[11px] font-bold text-gray-700 leading-tight truncate">광고 영역 (AdSense 승인 후 자동/디스플레이 광고 노출)</p>
+                        <p class="text-[9px] text-gray-400">스캔 모드 진입 시 오클릭 방지를 위해 자동 숨김</p>
+                    </div>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- =====================================================================
+         5. 전체화면 바코드 스캔 모드 (핵심 기능 · 광고 미노출 클린 스캔 뷰)
+         ===================================================================== -->
+    <div id="scan-modal" class="fixed inset-0 z-50 hidden bg-white flex-col justify-between animate-scan">
+        <!-- 스캔 모드 상단 바 -->
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 max-w-[480px] w-full mx-auto">
+            <button onclick="closeScanModal()" class="p-2 -ml-2 rounded-xl text-gray-700 hover:bg-gray-100 flex items-center gap-1 text-sm font-bold">
+                <i data-lucide="arrow-left" class="w-5 h-5"></i>
+                <span>닫기</span>
+            </button>
+
+            <!-- 밝기 최대화 시뮬레이션 뱃지 -->
+            <div class="flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 px-3 py-1 rounded-full text-[11px] font-bold">
+                <i data-lucide="sun" class="w-3.5 h-3.5 text-amber-500 animate-pulse"></i>
+                <span>스캔 최적화 · 최대 밝기</span>
+            </div>
+
+            <!-- 우측 액션: 멤버십 핀 토글 및 삭제 -->
+            <div class="flex items-center gap-1">
+                <button id="scan-pin-btn" onclick="togglePinCurrent()" class="p-2 rounded-xl text-gray-400 hover:bg-gray-100 transition" title="상단 고정">
+                    <i data-lucide="pin" class="w-5 h-5"></i>
+                </button>
+                <button onclick="deleteCurrentCard()" class="p-2 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition" title="삭제">
+                    <i data-lucide="trash-2" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- 스캔 모드 중앙: 순백색 배경 + 대형 바코드 -->
+        <div class="flex-1 flex flex-col items-center justify-center px-5 py-4 max-w-[480px] w-full mx-auto bg-white">
+            <div class="text-center mb-5">
+                <div class="flex items-center justify-center gap-1.5 mb-1.5">
+                    <span id="scan-category-badge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-600">멤버십</span>
+                    <span id="scan-dday-badge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-600">D-30</span>
+                </div>
+                <h2 id="scan-title" class="text-2xl font-black text-gray-900 tracking-tight">스타벅스 아메리카노</h2>
+                <p id="scan-expiry-text" class="text-xs text-gray-400 mt-1">유효기간: 2026.12.31까지</p>
+            </div>
+
+            <!-- 순백색 고대비 바코드 박스 -->
+            <div class="w-full bg-white border-2 border-gray-900 rounded-2xl p-5 shadow-lg flex flex-col items-center justify-center">
+                <div class="w-full overflow-hidden flex items-center justify-center bg-white py-2">
+                    <img id="scan-barcode-img" src="" alt="바코드" class="max-h-56 w-auto max-w-full object-contain">
+                </div>
+                <p id="scan-barcode-number" class="mt-3 text-xl sm:text-2xl font-mono font-extrabold tracking-[0.18em] text-gray-900 text-center break-all">
+                    1234 5678 9012
+                </p>
+            </div>
+
+            <p class="text-xs text-gray-400 mt-4 flex items-center gap-1">
+                <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
+                <span>리더기에 바코드 화면을 가까이 대주세요</span>
+            </p>
+        </div>
+
+        <!-- 스캔 모드 하단 액션 버튼 -->
+        <div class="p-4 border-t border-gray-100 max-w-[480px] w-full mx-auto bg-white">
+            <!-- 기프티콘인 경우: 사용 완료 처리 / 복원 버튼 -->
+            <button id="scan-complete-btn" onclick="toggleUsedCurrent()" class="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-extrabold text-base shadow-md shadow-blue-200 flex items-center justify-center gap-2 transition">
+                <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+                <span id="scan-complete-text">사용 완료 처리</span>
+            </button>
+            <!-- 멤버십인 경우: 상단 고정 토글 버튼 -->
+            <button id="scan-pin-wide-btn" onclick="togglePinCurrent()" class="hidden w-full py-4 rounded-2xl bg-gray-900 hover:bg-gray-800 active:scale-[0.99] text-white font-extrabold text-base flex items-center justify-center gap-2 transition">
+                <i data-lucide="pin" class="w-5 h-5"></i>
+                <span id="scan-pin-wide-text">상단 즐겨찾기 고정</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- =====================================================================
+         애드센스 정책 준수용 안내 모달 (개인정보처리방침 / 이용약관 / 문의 안내)
+         ===================================================================== -->
+    <div id="policy-modal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-xs items-end sm:items-center justify-center p-0 sm:p-4">
+        <div class="bg-white w-full max-w-[480px] rounded-t-3xl sm:rounded-3xl max-h-[85vh] overflow-y-auto p-5 shadow-2xl">
+            <div class="flex items-center justify-between pb-3 border-b border-gray-100">
+                <h2 id="policy-modal-title" class="text-base font-extrabold text-gray-900">개인정보처리방침</h2>
+                <button type="button" onclick="closePolicyModal()" class="p-1.5 rounded-full bg-gray-100 text-gray-500 hover:text-gray-800">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div id="policy-modal-body" class="mt-4 text-xs text-gray-600 space-y-3 leading-relaxed">
+                <!-- JS로 동적 렌더링 -->
+            </div>
+            <div class="mt-5 pt-2">
+                <button type="button" onclick="closePolicyModal()" class="w-full py-3 rounded-2xl bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 transition">
+                    확인
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- =====================================================================
+         커스텀 확인 모달 (alert/confirm 대체용) & 토스트 알림
+         ===================================================================== -->
+    <div id="confirm-modal" class="fixed inset-0 z-50 hidden bg-black/50 backdrop-blur-xs items-center justify-center p-4">
+        <div class="bg-white w-full max-w-xs rounded-3xl p-5 shadow-xl text-center">
+            <div class="w-12 h-12 rounded-2xl bg-amber-50 text-amber-500 flex items-center justify-center mx-auto mb-3">
+                <i data-lucide="alert-circle" class="w-6 h-6"></i>
+            </div>
+            <h3 id="confirm-title" class="text-base font-extrabold text-gray-900">샘플 데이터로 초기화할까요?</h3>
+            <p id="confirm-desc" class="text-xs text-gray-500 mt-1.5 leading-relaxed">현재 저장된 내역이 삭제되고 기본 샘플 바코드 3개가 다시 생성됩니다.</p>
+            <div class="grid grid-cols-2 gap-2 mt-5">
+                <button onclick="closeConfirmModal()" class="py-2.5 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200 transition">취소</button>
+                <button id="confirm-ok-btn" class="py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 하단 플로팅 토스트 메시지 -->
+    <div id="toast" class="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 pointer-events-none opacity-0 transition-opacity duration-200">
+        <div class="bg-gray-900/90 backdrop-blur-md text-white text-xs font-bold px-4 py-2.5 rounded-full shadow-lg whitespace-nowrap">
+            <span id="toast-msg">저장되었습니다</span>
+        </div>
+    </div>
+
+    <script>
+        // =====================================================================
+        // 6. 전체화면 바코드 스캔 모드 로직 (광고 영역 자동 숨김 처리 포함)
+        // =====================================================================
+        function setAdVisibility(isVisible) {
+            const adFooter = document.getElementById('ad-footer-slot');
+            if (!adFooter) return;
+            if (isVisible) {
+                adFooter.classList.remove('hidden');
+                adFooter.classList.add('flex');
+            } else {
+                adFooter.classList.add('hidden');
+                adFooter.classList.remove('flex');
+            }
+        }
+
+        function openScanModal(id) {
+            const card = cards.find(c => c.id === id);
+            if (!card) return;
+
+            // 스캔 모드 진입 시 하단 광고 영역 숨김 (스캔 방해 및 오클릭 방지)
+            setAdVisibility(false);
+
+            currentScanCardId = id;
+            const modal = document.getElementById('scan-modal');
+
+            // 데이터 바인딩
+            document.getElementById('scan-title').textContent = card.title;
+            document.getElementById('scan-barcode-img').src = card.imageData;
+            document.getElementById('scan-barcode-number').textContent = card.barcodeNumber || '';
+
+            const isMembership = card.category === 'membership';
+            const catBadge = document.getElementById('scan-category-badge');
+            catBadge.textContent = isMembership ? '멤버십 포인트' : '기프티콘 / 쿠폰';
+            catBadge.className = isMembership
+                ? 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700'
+                : 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-600';
+
+            const ddayBadge = document.getElementById('scan-dday-badge');
+            const expiryText = document.getElementById('scan-expiry-text');
+            const dday = calculateDday(card.expiryDate);
+
+            if (dday) {
+                ddayBadge.classList.remove('hidden');
+                ddayBadge.textContent = dday.text;
+                ddayBadge.className = dday.urgent
+                    ? 'text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-red-50 text-red-600'
+                    : 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-600';
+                expiryText.textContent = `유효기간: ${card.expiryDate}까지`;
+            } else {
+                ddayBadge.classList.add('hidden');
+                expiryText.textContent = isMembership ? '유효기간 제한 없음' : '유효기간 미지정';
+            }
+
+            // 핀(즐겨찾기) 아이콘 상태 반영
+            updateScanPinUI(card);
+
+            // 하단 버튼 분기 (기프티콘 -> 사용완료 처리 / 멤버십 -> 상단 고정 토글)
+            const completeBtn = document.getElementById('scan-complete-btn');
+            const pinWideBtn = document.getElementById('scan-pin-wide-btn');
+
+            if (isMembership) {
+                completeBtn.classList.add('hidden');
+                pinWideBtn.classList.remove('hidden');
+            } else {
+                completeBtn.classList.remove('hidden');
+                pinWideBtn.classList.add('hidden');
+
+                const completeText = document.getElementById('scan-complete-text');
+                if (card.isUsed) {
+                    completeText.textContent = '사용 가능으로 복원하기';
+                    completeBtn.className = 'w-full py-4 rounded-2xl bg-gray-800 hover:bg-gray-900 active:scale-[0.99] text-white font-extrabold text-base flex items-center justify-center gap-2 transition';
+                } else {
+                    completeText.textContent = '사용 완료 처리';
+                    completeBtn.className = 'w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-extrabold text-base shadow-md shadow-blue-200 flex items-center justify-center gap-2 transition';
+                }
+            }
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            lucide.createIcons();
+        }
+
+        function updateScanPinUI(card) {
+            const pinBtn = document.getElementById('scan-pin-btn');
+            const pinWideText = document.getElementById('scan-pin-wide-text');
+            if (card.isPinned) {
+                pinBtn.className = 'p-2 rounded-xl text-amber-500 bg-amber-50 transition';
+                pinWideText.textContent = '상단 즐겨찾기 고정 해제';
+            } else {
+                pinBtn.className = 'p-2 rounded-xl text-gray-400 hover:bg-gray-100 transition';
+                pinWideText.textContent = '상단 즐겨찾기 고정';
+            }
+        }
+
+        function closeScanModal() {
+            const modal = document.getElementById('scan-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            currentScanCardId = null;
+            // 메인 화면 복귀 시 광고 영역 다시 표시
+            setAdVisibility(true);
+        }
+
+        function toggleUsedCurrent() {
+            const card = cards.find(c => c.id === currentScanCardId);
+            if (!card) return;
+
+            card.isUsed = !card.isUsed;
+            saveCards();
+            closeScanModal();
+
+            if (card.isUsed) {
+                switchTab('used');
+                showToast('사용 완료 처리되어 보관함으로 이동했습니다');
+            } else {
+                switchTab('active');
+                showToast('사용 가능 목록으로 복원되었습니다');
+            }
+        }
+
+        function togglePinCurrent() {
+            const card = cards.find(c => c.id === currentScanCardId);
+            if (!card) return;
+
+            card.isPinned = !card.isPinned;
+            saveCards();
+            updateScanPinUI(card);
+            renderGrid();
+            showToast(card.isPinned ? '목록 최상단에 고정되었습니다' : '상단 고정이 해제되었습니다');
+        }
+
+        function deleteCurrentCard() {
+            const card = cards.find(c => c.id === currentScanCardId);
+            if (!card) return;
+
+            openConfirmDialog(
+                '이 바코드를 삭제할까요?',
+                `'${card.title}' 항목이 영구적으로 삭제됩니다.`,
+                () => {
+                    cards = cards.filter(c => c.id !== currentScanCardId);
+                    saveCards();
+                    closeConfirmModal();
+                    closeScanModal();
+                    renderGrid();
+                    showToast('삭제되었습니다');
+                }
+            );
+        }
+
+        // =====================================================================
+        // 7. 새 카드/쿠폰 등록 모달 & 이미지 크롭 / 바코드 생성 로직
+        // =====================================================================
+        function openAddModal() {
+            document.getElementById('add-form').reset();
+            uploadedImageObj = null;
+            document.getElementById('crop-editor').classList.add('hidden');
+            document.getElementById('preview-dday').textContent = '';
+            setInputMode('image');
+            toggleExpiryField();
+
+            const modal = document.getElementById('add-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            lucide.createIcons();
+        }
+
+        function closeAddModal() {
+            const modal = document.getElementById('add-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function toggleExpiryField() {
+            const cat = document.querySelector('input[name="category"]:checked').value;
+            const wrapper = document.getElementById('expiry-wrapper');
+            // 멤버십도 선택적 유효기간 입력 가능하도록 유지하되 라벨 안내만 유연하게
+            wrapper.style.opacity = cat === 'membership' ? '0.85' : '1';
+        }
+
+        function updatePreviewDday() {
+            const val = document.getElementById('input-expiry').value;
+            const dday = calculateDday(val);
+            document.getElementById('preview-dday').textContent = dday ? dday.text : '';
+        }
+
+        function setInputMode(mode) {
+            currentInputMode = mode;
+            const btnImg = document.getElementById('mode-btn-image');
+            const btnNum = document.getElementById('mode-btn-number');
+            const boxImg = document.getElementById('input-mode-image');
+            const boxNum = document.getElementById('input-mode-number');
+
+            if (mode === 'image') {
+                btnImg.className = 'flex-1 py-1.5 text-xs font-bold rounded-lg bg-white text-gray-900 shadow-xs transition';
+                btnNum.className = 'flex-1 py-1.5 text-xs font-bold rounded-lg text-gray-500 transition';
+                boxImg.classList.remove('hidden');
+                boxNum.classList.add('hidden');
+            } else {
+                btnNum.className = 'flex-1 py-1.5 text-xs font-bold rounded-lg bg-white text-gray-900 shadow-xs transition';
+                btnImg.className = 'flex-1 py-1.5 text-xs font-bold rounded-lg text-gray-500 transition';
+                boxNum.classList.remove('hidden');
+                boxImg.classList.add('hidden');
+                updateGeneratedBarcodePreview();
+            }
+        }
+
+        // 이미지 업로드 처리
+        function handleImageUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    uploadedImageObj = img;
+                    document.getElementById('crop-editor').classList.remove('hidden');
+                    // 모바일 기프티콘 스크린샷 비율인 경우 하단 바코드 영역으로 자동 초기 세팅
+                    if (img.height > img.width * 1.3) {
+                        autoCenterBarcodeCrop();
+                    } else {
+                        // 일반 바코드 이미지인 경우 전체 영역에 가깝게 세팅
+                        document.getElementById('crop-y').value = 5;
+                        document.getElementById('crop-h').value = 90;
+                        document.getElementById('crop-x').value = 5;
+                        renderCroppedCanvas();
+                    }
+                    lucide.createIcons();
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // 기프티콘 스크린샷 하단 바코드 위치 자동 맞춤
+        function autoCenterBarcodeCrop() {
+            document.getElementById('crop-y').value = 56;
+            document.getElementById('crop-h').value = 28;
+            document.getElementById('crop-x').value = 10;
+            renderCroppedCanvas();
+        }
+
+        // 크롭 슬라이더 값에 따라 실시간 캔버스 렌더링
+        function renderCroppedCanvas() {
+            if (!uploadedImageObj) return;
+
+            const yPct = parseInt(document.getElementById('crop-y').value, 10);
+            const hPct = parseInt(document.getElementById('crop-h').value, 10);
+            const xPct = parseInt(document.getElementById('crop-x').value, 10);
+
+            document.getElementById('val-crop-y').textContent = `${yPct}%`;
+            document.getElementById('val-crop-h').textContent = `${hPct}%`;
+            document.getElementById('val-crop-x').textContent = `${xPct}%`;
+
+            const canvas = document.getElementById('crop-preview-canvas');
+            const ctx = canvas.getContext('2d');
+
+            const sx = (uploadedImageObj.width * xPct) / 100;
+            const sw = Math.max(20, uploadedImageObj.width - sx * 2);
+            const sy = (uploadedImageObj.height * yPct) / 100;
+            const sh = Math.max(20, Math.min(uploadedImageObj.height - sy, (uploadedImageObj.height * hPct) / 100));
+
+            // 저장 용량 최적화를 위해 최대 가로폭 700px로 리사이징
+            const scale = Math.min(1, 700 / sw);
+            canvas.width = Math.floor(sw * scale);
+            canvas.height = Math.floor(sh * scale);
+
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(uploadedImageObj, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+        }
+
+        // 바코드 번호 직접 입력 시 실시간 캔버스 미리보기
+        function updateGeneratedBarcodePreview() {
+            const code = document.getElementById('input-barcode-code').value.trim() || '8801234567890';
+            const title = document.getElementById('input-title').value.trim();
+            const dataUrl = generateBarcodeDataURL(code, title);
+
+            const canvas = document.getElementById('generated-barcode-canvas');
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+            img.onload = function() {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
+            };
+            img.src = dataUrl;
+        }
+
+        // 카드 최종 저장
+        function handleSaveCard(event) {
+            event.preventDefault();
+
+            const title = document.getElementById('input-title').value.trim();
+            const category = document.querySelector('input[name="category"]:checked').value;
+            const expiryDate = document.getElementById('input-expiry').value;
+
+            if (!title) {
+                showToast('카드 또는 쿠폰 이름을 입력해 주세요');
+                return;
+            }
+
+            let imageData = '';
+            let barcodeNumber = '';
+
+            if (currentInputMode === 'image') {
+                if (!uploadedImageObj) {
+                    showToast('바코드 이미지를 선택하거나 번호 입력 모드를 이용해 주세요');
+                    return;
+                }
+                const cropCanvas = document.getElementById('crop-preview-canvas');
+                imageData = cropCanvas.toDataURL('image/jpeg', 0.88);
+                barcodeNumber = document.getElementById('input-number-optional').value.trim();
+            } else {
+                const rawCode = document.getElementById('input-barcode-code').value.trim();
+                if (!rawCode) {
+                    showToast('바코드 번호를 입력해 주세요');
+                    return;
+                }
+                barcodeNumber = rawCode.replace(/(.{4})/g, '$1 ').trim();
+                imageData = generateBarcodeDataURL(rawCode, title);
+            }
+
+            const newCard = {
+                id: 'card-' + Date.now(),
+                title,
+                category,
+                expiryDate,
+                barcodeNumber,
+                imageData,
+                isUsed: false,
+                isPinned: category === 'membership', // 멤버십은 기본적으로 상단 고정 편의 제공
+                createdAt: Date.now()
+            };
+
+            cards.unshift(newCard);
+            saveCards();
+            closeAddModal();
+            switchTab('active');
+            showToast('새 바코드가 등록되었습니다!');
+        }
+
+        // =====================================================================
+        // 8. 커스텀 확인 모달 및 초기화 핸들러
+        // =====================================================================
+        function openConfirmDialog(title, desc, onConfirm) {
+            document.getElementById('confirm-title').textContent = title;
+            document.getElementById('confirm-desc').textContent = desc;
+            const okBtn = document.getElementById('confirm-ok-btn');
+            okBtn.onclick = onConfirm;
+
+            const modal = document.getElementById('confirm-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            lucide.createIcons();
+        }
+
+        function closeConfirmModal() {
+            const modal = document.getElementById('confirm-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        // =====================================================================
+        // 8-2. 개인정보처리방침 / 이용약관 / 문의 안내 모달 핸들러
+        // =====================================================================
+        function openPolicyModal(type) {
+            const titleEl = document.getElementById('policy-modal-title');
+            const bodyEl = document.getElementById('policy-modal-body');
+
+            if (type === 'privacy') {
+                titleEl.textContent = '개인정보처리방침';
+                bodyEl.innerHTML = `
+                    <p><strong class="text-gray-800">1. 로컬 저장소 기반 처리:</strong> 본 웹앱은 회원가입을 요구하지 않으며, 사용자가 입력한 카드명, 유효기간, 바코드 번호 및 이미지는 별도 백엔드 서버로 전송·저장되지 않고 브라우저의 <code>localStorage</code>에만 보관됩니다.</p>
+                    <p><strong class="text-gray-800">2. 광고 및 쿠키 안내:</strong> 향후 Google AdSense 등 광고 서비스 적용 시 광고 제공 및 성과 측정을 위해 브라우저 쿠키 또는 유사 기술이 사용될 수 있으며, 사용자는 브라우저 설정을 통해 쿠키 저장을 거부하거나 삭제할 수 있습니다.</p>
+                    <p><strong class="text-gray-800">3. 데이터 삭제:</strong> 사용자는 카드별 삭제 기능 또는 브라우저 사이트 데이터 초기화를 통해 저장된 정보를 언제든 직접 삭제할 수 있습니다.</p>
+                `;
+            } else if (type === 'terms') {
+                titleEl.textContent = '이용약관';
+                bodyEl.innerHTML = `
+                    <p><strong class="text-gray-800">1. 서비스 목적:</strong> '바코드 0.5초 런처'는 멤버십 바코드 및 기프티콘 이미지를 빠르게 조회·관리할 수 있도록 돕는 경량 웹 유틸리티입니다.</p>
+                    <p><strong class="text-gray-800">2. 책임의 한계:</strong> 본 서비스는 브라우저 로컬 저장소 기반으로 동작하므로 기기 변경, 브라우저 데이터 초기화, 유효기간 경과 또는 바코드 인식 환경에 따른 결제 오류에 대해 운영자는 법적 책임을 지지 않습니다.</p>
+                    <p><strong class="text-gray-800">3. 서비스 변경:</strong> 서비스 품질 향상 및 정책 준수를 위해 일부 기능이나 안내 구성이 예고 없이 변경될 수 있습니다.</p>
+                `;
+            } else {
+                titleEl.textContent = '문의 안내';
+                bodyEl.innerHTML = `
+                    <p><strong class="text-gray-800">운영 및 피드백 채널:</strong> 서비스 이용 중 오류 제보, 기능 개선 제안, 광고 및 제휴 관련 문의는 아래 연락처로 접수해 주세요.</p>
+                    <div class="bg-gray-50 border border-gray-200 rounded-xl p-3 text-gray-700 space-y-1">
+                        <p><strong>서비스명:</strong> 바코드 0.5초 런처</p>
+                        <p><strong>문의 이메일:</strong> support@example.com (운영 도메인 메일로 교체)</p>
+                        <p><strong>응대 안내:</strong> 영업일 기준 순차적으로 확인 후 안내드립니다.</p>
+                    </div>
+                `;
+            }
+
+            const modal = document.getElementById('policy-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            lucide.createIcons();
+        }
+
+        function closePolicyModal() {
+            const modal = document.getElementById('policy-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function openResetConfirm() {
+            openConfirmDialog(
+                '샘플 데이터로 초기화할까요?',
+                '현재 저장된 모든 카드가 지워지고 기본 샘플 바코드 3개로 복원됩니다.',
+                () => {
+                    cards = createSampleCards();
+                    saveCards();
+                    closeConfirmModal();
+                    switchTab('active');
+                    setFilter('all');
+                    showToast('샘플 데이터로 초기화되었습니다');
+                }
+            );
+        }
+
+        // =====================================================================
+        // 9. 앱 초기화 실행
+        // =====================================================================
+        window.addEventListener('DOMContentLoaded', () => {
+            loadCards();
+            renderGrid();
+        });
+    </script>
+</body>
+</html>
